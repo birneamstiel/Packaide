@@ -19,8 +19,8 @@ try:
   from ._packaide import Point, Polygon, PolygonWithHoles, Sheet, State, Placement
   from ._packaide import pack_decreasing, sheet_add_holes
 except:
-  from _packaide import Point, Polygon, PolygonWithHoles, Sheet, State, Placement
-  from _packaide import pack_decreasing, sheet_add_holes
+  from packaide import Point, Polygon, PolygonWithHoles, Sheet, State, Placement
+  from packaide import pack_decreasing, sheet_add_holes
 
 # We want to preserve presentation and identification (e.g., id, name, class) attributes
 # when flattening the SVG elements and writing them into the output, so that the packed
@@ -144,10 +144,15 @@ def extract_shapely_polygons(svg_document, tolerance):
 # shape elements of the document, and a list of the corresponding discretized polygons, which
 # are each represented as a pair, consisting of the boundary, and a list of holes
 def extract_polygons(svg_file, tolerance, offset):
-  polygons = []
   elements, shapely_polygons = extract_shapely_polygons(svg_file, tolerance)
   assert(len(elements) == len(shapely_polygons))
   
+  polygons = create_polygons_from_shapely(shapely_polygons, offset)
+
+  return elements, polygons
+
+def create_polygons_from_shapely(shapely_polygons: tuple[shapely.geometry.base.BaseGeometry, list[shapely.geometry.base.BaseGeometry]], offset):
+  polygons = []
   for polygon, holes in shapely_polygons:
     polygon = dilate(polygon, offset)
     x, y = polygon.exterior.coords.xy
@@ -163,14 +168,14 @@ def extract_polygons(svg_file, tolerance, offset):
       if not hole.is_empty:
         # Eroding a hole might have split it into multiple smaller holes,
         # so we need to separate them into multiple smaller holes here
-        if(isinstance(hole,shapely.geometry.MultiPolygon)):
+        if(isinstance(hole, shapely.geometry.MultiPolygon)):
           for minihole in hole.geoms:
             polygon_to_pack_hole = Polygon()
             x, y = minihole.exterior.coords.xy
             for i in range(len(x) - 1):
               polygon_to_pack_hole.addPoint(Point(x[i], y[i]))
             polygon.addHole(polygon_to_pack_hole)
-        else:    
+        else:
           polygon_to_pack_hole = Polygon()
           x, y = hole.exterior.coords.xy
           for i in range(len(x) - 1):
@@ -178,8 +183,30 @@ def extract_polygons(svg_file, tolerance, offset):
           polygon.addHole(polygon_to_pack_hole)
 
     polygons.append(polygon)
+  return polygons
 
-  return elements, polygons
+def parse_polygon(raw_polygon):
+  """
+  Given a list of coordinates for exterior ring and holes creates a corresponding PolygonWithHoles
+  """
+  polygon = PolygonWithHoles(parse_outline_from_coordinates(raw_polygon[0]))
+  for hole in raw_polygon[1]:
+    polygon.addHole(parse_outline_from_coordinates(hole))
+  return polygon 
+  
+
+def parse_outline_from_coordinates(coordinates):
+  outline = Polygon()
+  for point in coordinates:
+    x, y = point
+    outline.addPoint(Point(float(x), float(y)))
+  return outline
+
+
+def get_sheet_dimensions_from_polygon(raw_polygon):
+  shapely_polygon = shapely.geometry.Polygon(raw_polygon[0])
+  (minx, miny, maxx, maxy) = shapely_polygon.bounds
+  return maxy - miny, maxx - minx
 
 # Given an SVG filename, return the height and width of the viewBox
 def get_sheet_dimensions(svg_string):
@@ -360,6 +387,87 @@ def pack(sheet_svgs, shapes, offset = 1, tolerance = 1, partial_solution = False
   assert(len(successfully_placed) <= len(polygons))
   if not partial_solution:
     assert(len(successfully_placed) == 0 or len(successfully_placed) == len(polygons))
+
+  return outputs, len(successfully_placed), len(polygons) - len(successfully_placed)
+
+
+def pack_polygons(width, height, hole_polygons_for_sheets, part_polygons, offset=1, tolerance=1, partial_solution=False, rotations=4, persist=True, custom_state=None):
+  '''
+    Similar to pack, but takes a list of polygons as input instead of SVG documents.
+  '''
+
+  # Use the global persistent state, or a blank state if no persistence
+  state = custom_state if persist and custom_state is not None else persistent_state if persist else State()
+
+  # TODO check extract_shape_polygons method and do everything that's done there here as well, dilation, cleaning of polygons from duplicate points etc. 
+  # Parse shapes and discretise into polygons
+  polygons = create_polygons_from_shapely([(p.exterior, p.interiors) for p in part_polygons], offset)
+  # elements, polygons = extract_polygons(shapes, tolerance, offset)
+  # assert(len(elements) == len(polygons))
+
+  # sheet_polygons = map(parse_polygon, sheet_polygons)
+
+  # TODO check if this works with multiple sheets
+  sheets = []
+  for hole_polygons in hole_polygons_for_sheets:
+    sheet = Sheet()
+    holes = create_polygons_from_shapely([(h.exterior, h.interiors) for h in hole_polygons], offset)
+    holes = [hole.boundary for hole in holes]
+    sheet.height, sheet.width = width, height
+    sheet_add_holes(sheet, holes, state)
+    sheets.append(sheet)
+
+  # Run the packing algorithm
+  packing_output = pack_decreasing(
+      sheets, polygons, state, partial_solution, rotations)
+
+  outputs = []
+  successfully_placed = []
+
+  for i in range(len(packing_output)):
+    # Load the sheet and remove the holes to use as the output canvas
+    # doc = minidom.parseString(sheet_svgs[i])
+    # svg = doc.getElementsByTagName('svg')[0]
+    # for k in range(len(svg.childNodes)):
+    #   svg.removeChild(svg.childNodes[0])
+
+    doc = minidom.parseString("<svg></svg>")
+    svg = doc.getElementsByTagName('svg')[0]
+    transforms = [None] * len(polygons) 
+
+    # Add the placed parts onto the sheet with their appropriate transformations
+    for placement in packing_output[i]:
+      successfully_placed.append(placement.polygon_id)
+
+      # The first point of the polygon. All transformations are with respect to this point
+      px = polygons[placement.polygon_id].boundary.points[0].x
+      py = polygons[placement.polygon_id].boundary.points[0].y
+
+      # Extract the transformation to be applied to the polygon
+      tx = placement.transform.translate.x - px
+      ty = placement.transform.translate.y - py
+      r = placement.transform.rotate
+
+      # # Create an SVG path element from the original element, converted to a path
+      # shape = flatten_shape(doc, elements[placement.polygon_id])
+
+      # # Apply the transformation to the shape to place it in its final position
+      # transform = 'translate(%.3f,%.3f) rotate(%.3f,%.3f,%.3f)' % (
+      #     tx, ty, r, px, py)
+      # shape.setAttribute("transform", (transform + " " +
+      #                    shape.getAttribute("transform")).strip())
+      # svg.appendChild(shape)
+      transforms[placement.polygon_id] = [tx, ty, r, px, py]
+      # transforms.append([tx,ty, r, px, py])
+
+    outputs.append((i, transforms))
+
+  # Sanity check. No polygon should be placed twice
+  assert(len(successfully_placed) == len(set(successfully_placed)))
+  assert(len(successfully_placed) <= len(polygons))
+  if not partial_solution:
+    assert(len(successfully_placed) == 0 or len(
+        successfully_placed) == len(polygons))
 
   return outputs, len(successfully_placed), len(polygons) - len(successfully_placed)
 
