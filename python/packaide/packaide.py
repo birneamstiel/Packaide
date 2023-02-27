@@ -413,7 +413,7 @@ def pack_polygons(width, height, hole_polygons_for_sheets, part_polygons, offset
     sheet = Sheet()
     holes = create_polygons_from_shapely([(h.exterior, h.interiors) for h in hole_polygons], offset)
     holes = [hole.boundary for hole in holes]
-    sheet.height, sheet.width = width, height
+    sheet.height, sheet.width = height, width
     sheet_add_holes(sheet, holes, state)
     sheets.append(sheet)
 
