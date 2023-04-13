@@ -92,7 +92,8 @@ boost::python::list pack_decreasing_bind(
   boost::python::list polygons, 
   packaide::State& state,
   bool partial_solution = false,
-  int rotations = 4) 
+  int rotations = 4,
+  bool use_heuristic = true)
 {
   // Convert input into CGAL polygons
   std::vector<Polygon_with_holes_2> pgons;
@@ -105,7 +106,7 @@ boost::python::list pack_decreasing_bind(
   }
 
   // Run packing
-  auto sheet_placements = packaide::pack_decreasing(cpp_sheets, pgons, state, partial_solution, rotations);
+  auto sheet_placements = packaide::pack_decreasing(cpp_sheets, pgons, state, partial_solution, rotations, use_heuristic);
 
   // Convert output to Python list of lists
   boost::python::list python_sheets;

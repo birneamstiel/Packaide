@@ -238,7 +238,7 @@ def flatten_shape(doc, element):
 #
 # Solution format:
 #
-def pack(sheet_svgs, shapes, offset = 1, tolerance = 1, partial_solution = False, rotations = 4, persist = True, custom_state = None):
+def pack(sheet_svgs, shapes, offset = 1, tolerance = 1, partial_solution = False, rotations = 4, persist = True, custom_state = None, use_heuristic = True):
 
   # Use the global persistent state, or a blank state if no persistence
   state = custom_state if persist and custom_state is not None else persistent_state if persist else State()
@@ -257,7 +257,7 @@ def pack(sheet_svgs, shapes, offset = 1, tolerance = 1, partial_solution = False
     sheets.append(sheet)
 
   # Run the packing algorithm
-  packing_output = pack_decreasing(sheets, polygons, state, partial_solution, rotations)
+  packing_output = pack_decreasing(sheets, polygons, state, partial_solution, rotations, use_heuristic)
 
   outputs = []
   successfully_placed = []
