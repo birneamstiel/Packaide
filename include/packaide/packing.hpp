@@ -98,7 +98,8 @@ std::optional<std::vector<std::vector<packaide::Placement>>> pack_polygons_order
     const std::vector<Polygon_with_holes_2*>& polygons,
     packaide::State& state,
     bool partial_solution,
-    int rotations=4
+    int rotations=4,
+    bool use_heuristic=true
   )
 {
   auto current_polygon_index = order.begin();
@@ -109,6 +110,7 @@ std::optional<std::vector<std::vector<packaide::Placement>>> pack_polygons_order
 
   // Place each polygon first fit in the given order
   for (; current_polygon_index != order.end(); ++current_polygon_index) {
+    std::cout << "### Placing Part" << "\n";
 
     size_t polygon_id = *current_polygon_index;
     bool polygon_placed = false;
@@ -165,15 +167,24 @@ std::optional<std::vector<std::vector<packaide::Placement>>> pack_polygons_order
         // Try all candidate points and select the best one
         auto candidate_points = candidates.get_points();
         if (!candidate_points.empty()) {
-          for (const auto& point: candidate_points) {
-            Transformation translate(CGAL::TRANSLATION, Vector_2(point.x(), point.y()));
-            auto test_position = transform_polygon_with_holes(translate, rotated_polygon);
-            double test_eval = sheet_heuristics[sheet_id].eval_new_part(test_position) + 0.01 * (to_double(point.x()) + to_double(point.y()));
-            if(test_eval < eval_value) {
-              best_transform = packaide::Transform(point, i * 360/rotations);
-              best_point = point;
-              best_i = i;
-              eval_value = test_eval;
+          if (!use_heuristic) {
+            auto index = 0;
+            auto point = candidate_points[index];
+            best_transform = packaide::Transform(point, i * 360/rotations);
+            best_point = point;
+            best_i = i;
+          } else {
+            for (const auto& point: candidate_points) {
+              std::cout << point.x() << ", " << point.y() << "\n";
+              Transformation translate(CGAL::TRANSLATION, Vector_2(point.x(), point.y()));
+              auto test_position = transform_polygon_with_holes(translate, rotated_polygon);
+              double test_eval = sheet_heuristics[sheet_id].eval_new_part(test_position) + 0.01 * (to_double(point.x()) + to_double(point.y()));
+              if(test_eval < eval_value) {
+                best_transform = packaide::Transform(point, i * 360/rotations);
+                best_point = point;
+                best_i = i;
+                eval_value = test_eval;
+              }
             }
           }
           polygon_placed = true;
@@ -207,7 +218,8 @@ std::vector<std::vector<packaide::Placement>> pack_decreasing(
   const std::vector<Polygon_with_holes_2>& polygons,
   packaide::State& state,
   bool partial_solution=false,
-  int rotations=4)
+  int rotations=4,
+  bool use_heuristic=true)
 {
   std::vector<std::size_t> order(polygons.size());
   std::iota(order.begin(), order.end(), 0);
@@ -231,7 +243,7 @@ std::vector<std::vector<packaide::Placement>> pack_decreasing(
   });
 
   // Perform the packing with decreasing size order
-  auto packing = pack_polygons_ordered_first_fit(sheets, order, canonical_polygons, state, partial_solution, rotations);
+  auto packing = pack_polygons_ordered_first_fit(sheets, order, canonical_polygons, state, partial_solution, rotations, use_heuristic);
   if (packing.has_value()) {
     return *packing;
   }

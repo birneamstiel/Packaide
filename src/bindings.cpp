@@ -79,7 +79,8 @@ pybind11::list pack_decreasing_bind(
   const pybind11::list& polygons,
   packaide::State& state,
   bool partial_solution = false,
-  int rotations = 4) 
+  int rotations = 4,
+  bool use_heuristic = true)
 {
   // Convert input into CGAL polygons
   std::vector<Polygon_with_holes_2> cpp_polygons;
@@ -92,7 +93,7 @@ pybind11::list pack_decreasing_bind(
   }
 
   // Run packing
-  auto sheet_placements = packaide::pack_decreasing(cpp_sheets, cpp_polygons, state, partial_solution, rotations);
+  auto sheet_placements = packaide::pack_decreasing(cpp_sheets, cpp_polygons, state, partial_solution, rotations, use_heuristic);
 
   // Convert output to Python list of lists
   pybind11::list python_sheets;

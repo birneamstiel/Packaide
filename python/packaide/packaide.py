@@ -192,8 +192,8 @@ def parse_polygon(raw_polygon):
   polygon = PolygonWithHoles(parse_outline_from_coordinates(raw_polygon[0]))
   for hole in raw_polygon[1]:
     polygon.addHole(parse_outline_from_coordinates(hole))
-  return polygon 
-  
+  return polygon
+
 
 def parse_outline_from_coordinates(coordinates):
   outline = Polygon()
@@ -231,7 +231,7 @@ def flatten_shape(doc, element):
 #                                 Packaide interface
 
 
-def pack(sheet_svgs, shapes, offset = 1, tolerance = 1, partial_solution = False, rotations = 4, persist = True, custom_state = None):
+def pack(sheet_svgs, shapes, offset = 1, tolerance = 1, partial_solution = False, rotations = 4, persist = True, custom_state = None, use_heuristic = True):
   '''
   Given a set of sheets and a set of shapes, pack the given shapes onto the given sheets
 
@@ -347,7 +347,7 @@ def pack(sheet_svgs, shapes, offset = 1, tolerance = 1, partial_solution = False
     sheets.append(sheet)
 
   # Run the packing algorithm
-  packing_output = pack_decreasing(sheets, polygons, state, partial_solution, rotations)
+  packing_output = pack_decreasing(sheets, polygons, state, partial_solution, rotations, use_heuristic)
 
   outputs = []
   successfully_placed = []
@@ -391,7 +391,7 @@ def pack(sheet_svgs, shapes, offset = 1, tolerance = 1, partial_solution = False
   return outputs, len(successfully_placed), len(polygons) - len(successfully_placed)
 
 
-def pack_polygons(width, height, hole_polygons_for_sheets, part_polygons, offset=1, tolerance=1, partial_solution=False, rotations=4, persist=True, custom_state=None):
+def pack_polygons(width, height, hole_polygons_for_sheets, part_polygons, offset=1, tolerance=1, partial_solution=False, rotations=4, persist=True, custom_state=None, use_heuristic=True):
   '''
     Similar to pack, but takes a list of polygons as input instead of SVG documents.
   '''
@@ -399,7 +399,7 @@ def pack_polygons(width, height, hole_polygons_for_sheets, part_polygons, offset
   # Use the global persistent state, or a blank state if no persistence
   state = custom_state if persist and custom_state is not None else persistent_state if persist else State()
 
-  # TODO check extract_shape_polygons method and do everything that's done there here as well, dilation, cleaning of polygons from duplicate points etc. 
+  # TODO check extract_shape_polygons method and do everything that's done there here as well, dilation, cleaning of polygons from duplicate points etc.
   # Parse shapes and discretise into polygons
   polygons = create_polygons_from_shapely([(p.exterior, p.interiors) for p in part_polygons], offset)
   # elements, polygons = extract_polygons(shapes, tolerance, offset)
@@ -419,7 +419,7 @@ def pack_polygons(width, height, hole_polygons_for_sheets, part_polygons, offset
 
   # Run the packing algorithm
   packing_output = pack_decreasing(
-      sheets, polygons, state, partial_solution, rotations)
+      sheets, polygons, state, partial_solution, rotations, use_heuristic)
 
   outputs = []
   successfully_placed = []
@@ -433,7 +433,7 @@ def pack_polygons(width, height, hole_polygons_for_sheets, part_polygons, offset
 
     doc = minidom.parseString("<svg></svg>")
     svg = doc.getElementsByTagName('svg')[0]
-    transforms = [None] * len(polygons) 
+    transforms = [None] * len(polygons)
 
     # Add the placed parts onto the sheet with their appropriate transformations
     for placement in packing_output[i]:
