@@ -231,7 +231,7 @@ def flatten_shape(doc, element):
 #                                 Packaide interface
 
 
-def pack(sheet_svgs, shapes, offset = 1, tolerance = 1, partial_solution = False, rotations = 4, persist = True, custom_state = None, use_heuristic = True):
+def pack(sheet_svgs, shapes, offset = 1, tolerance = 1, partial_solution = False, rotations = 4, persist = True, custom_state = None, heuristic = 0):
   '''
   Given a set of sheets and a set of shapes, pack the given shapes onto the given sheets
 
@@ -347,7 +347,7 @@ def pack(sheet_svgs, shapes, offset = 1, tolerance = 1, partial_solution = False
     sheets.append(sheet)
 
   # Run the packing algorithm
-  packing_output = pack_decreasing(sheets, polygons, state, partial_solution, rotations, use_heuristic)
+  packing_output = pack_decreasing(sheets, polygons, state, partial_solution, rotations, heuristic)
 
   outputs = []
   successfully_placed = []
@@ -391,7 +391,7 @@ def pack(sheet_svgs, shapes, offset = 1, tolerance = 1, partial_solution = False
   return outputs, len(successfully_placed), len(polygons) - len(successfully_placed)
 
 
-def pack_polygons(width, height, hole_polygons_for_sheets, part_polygons, offset=1, tolerance=1, partial_solution=False, rotations=4, persist=True, custom_state=None, use_heuristic=True):
+def pack_polygons(width, height, hole_polygons_for_sheets, part_polygons, offset=1, tolerance=1, partial_solution=False, rotations=4, persist=True, custom_state=None, heuristic=0):
   '''
     Similar to pack, but takes a list of polygons as input instead of SVG documents.
   '''
@@ -419,7 +419,7 @@ def pack_polygons(width, height, hole_polygons_for_sheets, part_polygons, offset
 
   # Run the packing algorithm
   packing_output = pack_decreasing(
-      sheets, polygons, state, partial_solution, rotations, use_heuristic)
+      sheets, polygons, state, partial_solution, rotations, heuristic)
 
   outputs = []
   successfully_placed = []

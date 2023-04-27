@@ -32,6 +32,7 @@
 #include <CGAL/Aff_transformation_2.h>
 #include <CGAL/Polygon_2.h>
 #include <CGAL/Polygon_with_holes_2.h>
+#include <CGAL/convex_hull_2.h>
 
 #include "no_fit_polygon.hpp"
 #include "persistence.hpp"
@@ -41,11 +42,21 @@ namespace packaide {
 
 const double pi = std::acos(-1);
 
+enum PlacementHeuristic { bounding_box, convex_hull };
+
+class IPickPlacementHeuristic {
+public:
+  virtual ~IPickPlacementHeuristic() {}
+  virtual double eval() const = 0;
+  virtual double eval_new_part(const Polygon_with_holes_2& part) const = 0;
+  virtual void add_new_part(const Polygon_with_holes_2& part) = 0;
+};
+
 // The bounding box heuristic considers the sum of the areas of:
 // - the bounding box of all newly placed parts
 // - the bounding box of all newly placed parts and existing holes
-struct IncrementalBoundingBoxHeuristic {
-
+class IncrementalBoundingBoxHeuristic : public IPickPlacementHeuristic {
+public:
   IncrementalBoundingBoxHeuristic(const packaide::Sheet& sheet) {
     auto bbox = bbox_2(std::begin(sheet.holes), std::end(sheet.holes));
     xmin = bbox.xmin(), xmax = bbox.xmax(), ymin = bbox.ymin(), ymax = bbox.ymax();
@@ -91,6 +102,69 @@ struct IncrementalBoundingBoxHeuristic {
                                                   // only the new parts
 };
 
+
+struct ConvexHullHeuristic : public IPickPlacementHeuristic {
+public:
+  ConvexHullHeuristic(const packaide::Sheet& sheet) {
+    // collect all points describing holes
+    std::vector<Point_2> points;
+    for (auto hole = std::begin(sheet.holes); hole != std::end(sheet.holes); ++hole) {
+      auto h = *hole;
+      auto outer = h.outer_boundary();
+      for (auto vertex = outer.vertices_begin(); vertex != outer.vertices_end(); ++vertex) {
+        points.push_back(*vertex);
+      }
+    }
+
+    CGAL::convex_hull_2(points.begin(), points.end(), std::back_inserter(convex_hull));
+  }
+
+  double eval() const {
+    // create a polygon from the convex hull points
+    Polygon_2 hull_poly(convex_hull.begin(), convex_hull.end());
+
+    // calculate the area of the convex hull
+    double area = CGAL::to_double(hull_poly.area());
+
+    return area;
+  }
+
+  // Evaluate the heuristic as if the given part was added to the sheet
+  double eval_new_part(const Polygon_with_holes_2& part) const {
+    std::vector<Point_2> new_points(convex_hull.begin(), convex_hull.end());
+    auto outer = part.outer_boundary();
+    for (auto vertex = outer.vertices_begin(); vertex != outer.vertices_end(); ++vertex) {
+      new_points.push_back(*vertex);
+    }
+
+    std::vector<Point_2> new_hull;
+    CGAL::convex_hull_2(new_points.begin(), new_points.end(), std::back_inserter(new_hull));
+
+    // create a polygon from the convex hull points
+    Polygon_2 hull_poly(new_hull.begin(), new_hull.end());
+
+    // calculate the area of the convex hull
+    double area = CGAL::to_double(hull_poly.area());
+
+    return area;
+  }
+
+  // Place a new part onto the sheet
+  void add_new_part(const Polygon_with_holes_2& part) {
+    std::vector<Point_2> new_points(convex_hull.begin(), convex_hull.end());
+    auto outer = part.outer_boundary();
+    for (auto vertex = outer.vertices_begin(); vertex != outer.vertices_end(); ++vertex) {
+      new_points.push_back(*vertex);
+    }
+
+    convex_hull.clear();
+    CGAL::convex_hull_2(new_points.begin(), new_points.end(), std::back_inserter(convex_hull));
+  }
+
+  std::vector<Point_2> convex_hull;
+
+};
+
 // Pack the given polygons in the given order using first-fit bin selection
 std::optional<std::vector<std::vector<packaide::Placement>>> pack_polygons_ordered_first_fit(
     const std::vector<packaide::Sheet>& sheets,
@@ -99,18 +173,18 @@ std::optional<std::vector<std::vector<packaide::Placement>>> pack_polygons_order
     packaide::State& state,
     bool partial_solution,
     int rotations=4,
-    bool use_heuristic=true
+    PlacementHeuristic heuristic = bounding_box
   )
 {
   auto current_polygon_index = order.begin();
   std::vector<std::vector<packaide::Placement>> sheet_placements;
   std::vector<std::vector<packaide::TransformedShape>> sheet_parts;
-  std::vector<IncrementalBoundingBoxHeuristic> sheet_heuristics;
+  std::vector<std::unique_ptr<IPickPlacementHeuristic>> sheet_heuristics;
   size_t used_sheets = 0;
 
   // Place each polygon first fit in the given order
   for (; current_polygon_index != order.end(); ++current_polygon_index) {
-    std::cout << "### Placing Part" << "\n";
+    std::cout << "### Placing Part ###" << "\n";
 
     size_t polygon_id = *current_polygon_index;
     bool polygon_placed = false;
@@ -137,7 +211,17 @@ std::optional<std::vector<std::vector<packaide::Placement>>> pack_polygons_order
         }
 
         // Initialize heuristic
-        sheet_heuristics.emplace_back(*current_sheet);
+        if (heuristic == bounding_box) {
+          IncrementalBoundingBoxHeuristic h(*current_sheet);
+//          sheet_heuristics.push_back(&heuristic);
+          sheet_heuristics.emplace_back(std::unique_ptr<IPickPlacementHeuristic>(new IncrementalBoundingBoxHeuristic(*current_sheet)));
+
+        } else if (heuristic == convex_hull) {
+          ConvexHullHeuristic h(*current_sheet);
+//          sheet_heuristics.push_back(&heuristic);
+          sheet_heuristics.emplace_back(std::unique_ptr<IPickPlacementHeuristic>(new ConvexHullHeuristic(*current_sheet)));
+        }
+
       }
 
       // Try up to the given number of evenly spaced rotations
@@ -167,18 +251,11 @@ std::optional<std::vector<std::vector<packaide::Placement>>> pack_polygons_order
         // Try all candidate points and select the best one
         auto candidate_points = candidates.get_points();
         if (!candidate_points.empty()) {
-          if (!use_heuristic) {
-            auto index = 0;
-            auto point = candidate_points[index];
-            best_transform = packaide::Transform(point, i * 360/rotations);
-            best_point = point;
-            best_i = i;
-          } else {
             for (const auto& point: candidate_points) {
               std::cout << point.x() << ", " << point.y() << "\n";
               Transformation translate(CGAL::TRANSLATION, Vector_2(point.x(), point.y()));
               auto test_position = transform_polygon_with_holes(translate, rotated_polygon);
-              double test_eval = sheet_heuristics[sheet_id].eval_new_part(test_position) + 0.01 * (to_double(point.x()) + to_double(point.y()));
+              double test_eval = sheet_heuristics[sheet_id]->eval_new_part(test_position) + 0.01 * (to_double(point.x()) + to_double(point.y()));
               if(test_eval < eval_value) {
                 best_transform = packaide::Transform(point, i * 360/rotations);
                 best_point = point;
@@ -186,7 +263,6 @@ std::optional<std::vector<std::vector<packaide::Placement>>> pack_polygons_order
                 eval_value = test_eval;
               }
             }
-          }
           polygon_placed = true;
         }
       }
@@ -197,7 +273,7 @@ std::optional<std::vector<std::vector<packaide::Placement>>> pack_polygons_order
         Transformation best_position(CGAL::TRANSLATION, Vector_2(best_point.x(), best_point.y()));
         auto best_polygon = transform_polygon_with_holes(best_rotate, *current_polygon);
         best_polygon = transform_polygon_with_holes(best_position, best_polygon);
-        sheet_heuristics[sheet_id].add_new_part(best_polygon);
+        sheet_heuristics[sheet_id]->add_new_part(best_polygon);
         sheet_parts[sheet_id].emplace_back(current_polygon, best_position,  best_i * 2 * pi/rotations);
         sheet_placements[sheet_id].emplace_back(polygon_id, best_transform);
       }
@@ -219,7 +295,7 @@ std::vector<std::vector<packaide::Placement>> pack_decreasing(
   packaide::State& state,
   bool partial_solution=false,
   int rotations=4,
-  bool use_heuristic=true)
+  PlacementHeuristic heuristic=bounding_box)
 {
   std::vector<std::size_t> order(polygons.size());
   std::iota(order.begin(), order.end(), 0);
@@ -243,7 +319,7 @@ std::vector<std::vector<packaide::Placement>> pack_decreasing(
   });
 
   // Perform the packing with decreasing size order
-  auto packing = pack_polygons_ordered_first_fit(sheets, order, canonical_polygons, state, partial_solution, rotations, use_heuristic);
+  auto packing = pack_polygons_ordered_first_fit(sheets, order, canonical_polygons, state, partial_solution, rotations, heuristic);
   if (packing.has_value()) {
     return *packing;
   }
