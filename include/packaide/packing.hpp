@@ -184,8 +184,6 @@ std::optional<std::vector<std::vector<packaide::Placement>>> pack_polygons_order
 
   // Place each polygon first fit in the given order
   for (; current_polygon_index != order.end(); ++current_polygon_index) {
-    std::cout << "### Placing Part ###" << "\n";
-
     size_t polygon_id = *current_polygon_index;
     bool polygon_placed = false;
     const auto& current_polygon = polygons.at(*current_polygon_index);
@@ -213,12 +211,10 @@ std::optional<std::vector<std::vector<packaide::Placement>>> pack_polygons_order
         // Initialize heuristic
         if (heuristic == bounding_box) {
           IncrementalBoundingBoxHeuristic h(*current_sheet);
-//          sheet_heuristics.push_back(&heuristic);
           sheet_heuristics.emplace_back(std::unique_ptr<IPickPlacementHeuristic>(new IncrementalBoundingBoxHeuristic(*current_sheet)));
 
         } else if (heuristic == convex_hull) {
           ConvexHullHeuristic h(*current_sheet);
-//          sheet_heuristics.push_back(&heuristic);
           sheet_heuristics.emplace_back(std::unique_ptr<IPickPlacementHeuristic>(new ConvexHullHeuristic(*current_sheet)));
         }
 
@@ -252,7 +248,6 @@ std::optional<std::vector<std::vector<packaide::Placement>>> pack_polygons_order
         auto candidate_points = candidates.get_points();
         if (!candidate_points.empty()) {
             for (const auto& point: candidate_points) {
-              std::cout << point.x() << ", " << point.y() << "\n";
               Transformation translate(CGAL::TRANSLATION, Vector_2(point.x(), point.y()));
               auto test_position = transform_polygon_with_holes(translate, rotated_polygon);
               double test_eval = sheet_heuristics[sheet_id]->eval_new_part(test_position) + 0.01 * (to_double(point.x()) + to_double(point.y()));

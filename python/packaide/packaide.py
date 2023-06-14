@@ -393,19 +393,20 @@ def pack(sheet_svgs, shapes, offset = 1, tolerance = 1, partial_solution = False
 
 def pack_polygons(width, height, hole_polygons_for_sheets, part_polygons, offset=1, tolerance=1, partial_solution=False, rotations=4, persist=True, custom_state=None, heuristic=0):
   '''
-    Similar to pack, but takes a list of polygons as input instead of SVG documents.
+    Similar to pack, but takes a list of polygons as input instead of SVG documents. Check 'pack' method for detailed
+    parameter description.
+
+    Returns: A triple consisting of the solution (per part one translation vector, one rotation angle and a point
+    specifying the rotation center), the number of placed parts, and the number of parts that could not be placed
   '''
 
   # Use the global persistent state, or a blank state if no persistence
   state = custom_state if persist and custom_state is not None else persistent_state if persist else State()
 
-  # TODO check extract_shape_polygons method and do everything that's done there here as well, dilation, cleaning of polygons from duplicate points etc.
-  # Parse shapes and discretise into polygons
+  # TODO Check extract_shape_polygons method  whether the dilate and erode operations are necessary when dealing with
+  # TODO polygons as well.
+  # Parse shapes as polygons
   polygons = create_polygons_from_shapely([(p.exterior, p.interiors) for p in part_polygons], offset)
-  # elements, polygons = extract_polygons(shapes, tolerance, offset)
-  # assert(len(elements) == len(polygons))
-
-  # sheet_polygons = map(parse_polygon, sheet_polygons)
 
   # TODO check if this works with multiple sheets
   sheets = []
@@ -425,14 +426,7 @@ def pack_polygons(width, height, hole_polygons_for_sheets, part_polygons, offset
   successfully_placed = []
 
   for i in range(len(packing_output)):
-    # Load the sheet and remove the holes to use as the output canvas
-    # doc = minidom.parseString(sheet_svgs[i])
-    # svg = doc.getElementsByTagName('svg')[0]
-    # for k in range(len(svg.childNodes)):
-    #   svg.removeChild(svg.childNodes[0])
-
     doc = minidom.parseString("<svg></svg>")
-    svg = doc.getElementsByTagName('svg')[0]
     transforms = [None] * len(polygons)
 
     # Add the placed parts onto the sheet with their appropriate transformations
@@ -448,17 +442,7 @@ def pack_polygons(width, height, hole_polygons_for_sheets, part_polygons, offset
       ty = placement.transform.translate.y - py
       r = placement.transform.rotate
 
-      # # Create an SVG path element from the original element, converted to a path
-      # shape = flatten_shape(doc, elements[placement.polygon_id])
-
-      # # Apply the transformation to the shape to place it in its final position
-      # transform = 'translate(%.3f,%.3f) rotate(%.3f,%.3f,%.3f)' % (
-      #     tx, ty, r, px, py)
-      # shape.setAttribute("transform", (transform + " " +
-      #                    shape.getAttribute("transform")).strip())
-      # svg.appendChild(shape)
       transforms[placement.polygon_id] = [tx, ty, r, px, py]
-      # transforms.append([tx,ty, r, px, py])
 
     outputs.append((i, transforms))
 
